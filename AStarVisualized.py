@@ -3,7 +3,11 @@
 from collections import namedtuple
 from numpy import Infinity
 from pygame.locals import *
-import sys, pygame
+import sys, pygame, random
+import spritesheet
+
+DIRS = N, NE, E, SE, S, SW, W, NW = 0, 1, 2, 3, 4, 5, 6, 7
+
 pygame.init()
 
 WHITE = (255, 255, 255)
@@ -30,9 +34,64 @@ isDijkistra = False
 
 # endregion
 
+fastGeneration = False
+def GenerateMaze(carveMaze = None):
+    x = 0
+    y = 0
+
+    if carveMaze is None:
+        carveMaze = False
+
+        x = startDragable.node.pos[0]
+        y = startDragable.node.pos[1] 
+               
+        for row in grid:
+            for tile in row:
+                tile.walkable = False
+    else:
+        carveMaze = True
+
+        x = goalDragable.node.pos[0]
+        y = goalDragable.node.pos[1] 
+
+    grid[x][y].walkable = True
+    walls = grid[x][y].getNeighbourWalls()   
+
+    while len(walls) > 0:
+        randomIndex = random.randint(0, len(walls) - 1)
+        currentWall = walls[randomIndex]
+        nWalls = currentWall.getNumberOfNotWalls()
+        if nWalls == 1 or (carveMaze and nWalls <= 3):
+            currentWall.walkable = True
+            walls.extend(currentWall.getNeighbourWalls())
+            if not fastGeneration:
+                for event in pygame.event.get():
+                    if event.type == QUIT:
+                        pygame.quit()
+                        sys.exit()
+
+                DrawUI()
+                DrawGrid(evaluatedTile= currentWall)         
+
+                pygame.display.update()
+                clock.tick(60)
+        
+        del walls[randomIndex]   
+
+    for row in grid:
+        for tile in row:
+            if tile.getNumberOfNotWalls() == 0 and not tile.walkable:
+                walls.append(tile)
+
+    if not grid[goalDragable.node.pos[0]][goalDragable.node.pos[1]].walkable:
+        GenerateMaze(carveMaze= True)
+
 # region Pathfinding
+def InScreenRange(value, minimum, maximum):
+    return min(max(value - minimum, 0), maximum - nodeSize / 2)
+
 def ScreenToGrid(screenPosition):
-    return (screenPosition.x // nodeSize, max(screenPosition.y - gridRect.y, 0) // nodeSize)
+    return (int(InScreenRange(screenPosition.x, gridRect.x, gridRect.width) // nodeSize), int(InScreenRange(screenPosition.y, gridRect.y, gridRect.height) // nodeSize))
 
 def GridToScreen(gridPosition):
     return ((gridPosition.x + .5) * nodeSize, gridRect.y + (gridPosition.y + .5) * nodeSize)
@@ -158,6 +217,69 @@ class Node:
                                 self.vecinos.append(grid[x][y])               
 
         return self.vecinos
+    
+    def outOfBounds(self, x, y):
+        return x < 0 or x >= gridWidth or y < 0 or y >= gridHeight    
+
+    def setupVecinos(self):
+        x = self.pos[0]
+        y = self.pos[1]        
+
+        self.graphicVecinos = [edgeTile for d in DIRS]
+        
+        possibilities = ((N, 0, -1), (NE, 1, -1), (E, 1, 0), (SE, 1, 1), (S, 0, 1), (SW, -1, 1), (W, -1, 0), (NW, -1, -1))
+        
+        for pos in possibilities:
+            i = x + pos[1]
+            j = y + pos[2]
+            if not self.outOfBounds(i, j):
+                self.graphicVecinos[pos[0]] = grid[i][j]
+    
+    def tileImage(self, rect):
+        
+        for i in range(0, 4):
+            vecinosWalkable = [self.graphicVecinos[(dir + i * 2) % 8].walkable for dir in DIRS]
+
+            if not vecinosWalkable[N]: 
+                screen.blit(variations[1][i], rect.topleft)
+                if not vecinosWalkable[E]:
+                    if not vecinosWalkable[NE]: screen.blit(variations[2][i], rect.topleft)
+                    else: screen.blit(variations[3][i], rect.topleft)
+        
+        screen.blit(variations[0][0], rect.topleft)
+    
+    def getNeighbourWalls(self):
+        vecinosParedes = []
+
+        m = (-1, 0, 1)
+        for x in m:
+            for y in m:
+                if (x, y) == (0, 0): continue
+                i = x + self.pos[0]
+                j = y + self.pos[1]
+                if not self.outOfBounds(i, j):
+                    tile = grid[i][j]
+                    if not tile.walkable:
+                        vecinosParedes.append(tile)
+        
+        return vecinosParedes
+
+    def getNumberOfNotWalls(self):
+        vecinosNoParedes = 0
+
+        m = (-1, 0, 1)
+        for x in m:
+            for y in m:
+                if (x, y) == (0, 0): continue
+                i = x + self.pos[0]
+                j = y + self.pos[1]
+                if not self.outOfBounds(i, j):
+                    if grid[i][j].walkable:
+                        vecinosNoParedes += 1
+        
+        return vecinosNoParedes
+
+
 # endregion
 
 # region Button
@@ -207,13 +329,13 @@ class Dragable():
         self.node = node
         self.moving = False
     
-    def InBounds(self):
+    def InBounds(self, pos):
         screenPos = GridToScreen(self.node.pos)
-        return (screenPos[0] - nodeSize / 2 <= mouse[0] <= screenPos[0] + nodeSize / 2 and screenPos[1] - nodeSize / 2 <= mouse[1] <= screenPos[1] + nodeSize / 2)
+        return (screenPos[0] - nodeSize / 2 <= pos[0] <= screenPos[0] + nodeSize / 2 and screenPos[1] - nodeSize / 2 <= pos[1] <= screenPos[1] + nodeSize / 2)
 
     def Draw(self):
         c = self.normalColor
-        if self.InBounds() or self.moving:
+        if self.InBounds(mouse) or self.moving:
             c = self.hoverColor
         
         pygame.draw.circle(screen, c, GridToScreen(self.node.pos), self.radius)
@@ -227,7 +349,7 @@ class Dragable():
 # endregion
 
 # region Draw and Event Handling
-def DrawGrid(openSet = None, closedSet = None):
+def DrawGrid(openSet = None, closedSet = None, evaluatedTile = None):
     findingPath = False
     if closedSet is not openSet is not None:
         findingPath = True
@@ -241,6 +363,7 @@ def DrawGrid(openSet = None, closedSet = None):
             pygame.draw.rect(screen, gridLinesColor, rect, 1)
             current = grid[x][y]
             currentPos = (x, y)
+
             if current.partOfPath:
                 pygame.draw.circle(screen, gridLinesColor, GridToScreen(position(currentPos[0], currentPos[1])), 10)
             if currentPos == startDragable.node.pos:
@@ -248,9 +371,14 @@ def DrawGrid(openSet = None, closedSet = None):
             if currentPos == goalDragable.node.pos:
                 goalDragable.Draw()
             if not current.walkable:
-                pos = GridToScreen(position(currentPos[0], currentPos[1]))
-                pygame.draw.rect(screen, (0, 0, 0), Rect(pos[0] - nodeSize / 2, pos[1] - nodeSize / 2, nodeSize, nodeSize))
-            
+               current.tileImage(rect)
+    
+    if evaluatedTile is not None:
+        s = pygame.Surface((nodeSize, nodeSize), pygame.SRCALPHA)
+        s.fill((255, 0, 0, 128))
+        p = GridToScreen(evaluatedTile.pos)
+        screen.blit(s, (p[0] - nodeSize / 2, p[1] - nodeSize / 2))
+
     if findingPath:
         for node in closedSet:
             s = pygame.Surface((nodeSize, nodeSize), pygame.SRCALPHA)
@@ -268,11 +396,13 @@ def DrawUI():
 
     startButton.Draw()
     resetButton.Draw()
+    generateMazeButton.Draw()
     typeOfPFTButton.Draw()
 
-isClickingGrid = [False, False]
+isClickingGrid = False
+draggingValue = False
 def EventHandling():    
-    global mouse, isClickingGrid
+    global mouse, isClickingGrid, draggingValue
     mouse = pygame.mouse.get_pos()
 
     for event in pygame.event.get():
@@ -284,28 +414,32 @@ def EventHandling():
                 startButton.onClick()
             elif resetButton.InBounds():
                 resetButton.onClick()
+            elif generateMazeButton.InBounds():
+                generateMazeButton.onClick()
             elif typeOfPFTButton.InBounds():
                 typeOfPFTButton.Toggle()
-            elif startDragable.InBounds():
+            elif startDragable.InBounds(mouse):
                 startDragable.moving = True
-            elif goalDragable.InBounds():
+            elif goalDragable.InBounds(mouse):
                 goalDragable.moving = True
             else:
-                isClickingGrid[0] = True
+                isClickingGrid = True
                 p = ScreenToGrid(position(mouse[0], mouse[1]))
                 possibleWall = grid[p[0]][p[1]]
-                isClickingGrid[1] = not possibleWall.walkable                  
+                draggingValue = not possibleWall.walkable                  
         if event.type == pygame.MOUSEBUTTONUP:
-            isClickingGrid[0] = False
+            isClickingGrid = False
             if startDragable.moving:
                 startDragable.moving = False
             if goalDragable.moving:
                 goalDragable.moving = False
     
-    if isClickingGrid[0]:
+    if isClickingGrid:
         p = ScreenToGrid(position(mouse[0], mouse[1]))
-        possibleWall = grid[p[0]][p[1]]
-        possibleWall.walkable = isClickingGrid[1] 
+        sp = GridToScreen(position(p[0], p[1]))
+        if not startDragable.InBounds(sp) and not goalDragable.InBounds(sp):
+            possibleWall = grid[p[0]][p[1]]
+            possibleWall.walkable = draggingValue 
     
     if startDragable.moving:
         startDragable.Move()
@@ -314,16 +448,20 @@ def EventHandling():
 # endregion
 
 if __name__ == "__main__":
+
+    edgeTile = Node((-15, -15))
+    edgeTile.walkable = False
+
     clock = pygame.time.Clock()
     size = width, height = 1350, 700
 
     gridRect = Rect(0, 150, width, height - 150)
-    nodeSize = 50
+    nodeSize = 32
     gridSize = gridWidth, gridHeight = gridRect.width // nodeSize, gridRect.height // nodeSize
     grid = [[Node(position(x, y)) for y in range(gridHeight)] for x in range(gridWidth)]
 
-    startDragable = Dragable(nodeSize / 2 - 15, normalStartColor, hoverStartColor, grid[0][0])
-    goalDragable = Dragable(nodeSize / 2 - 15, normalGoalColor, hoverGoalColor, grid[gridWidth - 1][gridHeight - 1])
+    startDragable = Dragable(nodeSize / 3, normalStartColor, hoverStartColor, grid[0][0])
+    goalDragable = Dragable(nodeSize / 3, normalGoalColor, hoverGoalColor, grid[gridWidth - 1][gridHeight - 1])
 
     goalRect = Rect(100, 100, nodeSize, nodeSize)
 
@@ -331,9 +469,27 @@ if __name__ == "__main__":
     
     startButton = Button(Rect((50, 50), (200, 50)), textFont.render('Start Pathfinding', True, textColor), InitPathFinding)
     resetButton = Button(Rect((300, 50), (100, 50)), textFont.render('Reset', True, textColor), ResetWallsAndPath)
-    typeOfPFTButton = ToggableButton(Rect((450, 50), (100, 50)), textFont.render('A Star', True, textColor), textFont.render('Dijkstra', True, textColor))
+    generateMazeButton = Button(Rect((450, 50), (200, 50)), textFont.render('Generate Maze', True, textColor), GenerateMaze)
+    typeOfPFTButton = ToggableButton(Rect((700, 50), (100, 50)), textFont.render('A Star', True, textColor), textFont.render('Dijkstra', True, textColor))
 
-    screen = pygame.display.set_mode(size)    
+    screen = pygame.display.set_mode(size)  
+    
+    ss = spritesheet.spritesheet('spritesheet.png')
+
+    images = ss.load_strip((1, 1, 16, 16), 4, 3, colorkey=(255, 255, 255))
+    variations = [[img for x in range(4)] for img in images]
+
+    for i in range(0, len(images)):
+        images[i] = pygame.transform.scale(images[i], (nodeSize, nodeSize))        
+        images[i].convert()
+        variations[i][0] = images[i]  
+
+        if i is not 0:
+            for j in range(1, 4): variations[i][j] = pygame.transform.rotate(images[i], (4 - j) * 90)    
+
+    for rows in grid:
+        for tile in rows:
+            tile.setupVecinos()
 
     while True:
         EventHandling()
