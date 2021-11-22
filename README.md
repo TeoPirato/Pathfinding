@@ -1,5 +1,5 @@
 # Pathfinding
-A* and Dijkstra pathfinding with pygame.
+A* and Dijkstra pathfinding with pygame, originally botched in spare time at school.
 
 ## Features
 
