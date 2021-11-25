@@ -29,4 +29,4 @@ class spritesheet(object):
     def load_strip(self, rect, image_count, offsetBetweenImages, colorkey = None):
         "Loads a strip of images and returns them as a list"
         tups = [(rect[0] + (rect[2] + offsetBetweenImages) * x, rect[1], rect[2], rect[3]) for x in range(image_count)]
-        return self.images_at(tups, colorkey)
+        return self.images_at(tups, colorkey)    
