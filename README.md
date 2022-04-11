@@ -1,6 +1,8 @@
 # Pathfinding
 A* and Dijkstra pathfinding with pygame, originally botched together in spare time at school.
 
+![image](https://github.com/TeoPirato/Pathfinding/blob/main/2022-04-11-07-05-04.gif)
+
 ## Features
 
 - Choose between the A* and Dijkstra algorithms.
